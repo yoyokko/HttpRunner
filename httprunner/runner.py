@@ -2,7 +2,7 @@
 
 from unittest.case import SkipTest
 
-from httprunner import exception, logger, response, utils
+from httprunner import exceptions, logger, response, utils
 from httprunner.client import HttpSession
 from httprunner.context import Context
 
@@ -14,15 +14,16 @@ class Runner(object):
         self.context = Context()
 
         config_dict = config_dict or {}
-        self.init_config(config_dict, "testset")
 
         # testset setup hooks
         testset_setup_hooks = config_dict.pop("setup_hooks", [])
-        if testset_setup_hooks:
-            self.do_hook_actions(testset_setup_hooks)
-
         # testset teardown hooks
         self.testset_teardown_hooks = config_dict.pop("teardown_hooks", [])
+
+        self.init_config(config_dict, "testset")
+
+        if testset_setup_hooks:
+            self.do_hook_actions(testset_setup_hooks)
 
     def __del__(self):
         if self.testset_teardown_hooks:
@@ -36,9 +37,6 @@ class Runner(object):
             {
                 "name": "smoke testset",
                 "path": "tests/data/demo_testset_variables.yml",
-                "requires": [],         # optional
-                "function_binds": {},   # optional
-                "import_module_items": [],  # optional
                 "variables": [],   # optional
                 "request": {
                     "base_url": "http://127.0.0.1:5000",
@@ -50,9 +48,6 @@ class Runner(object):
         testcase:
             {
                 "name": "testcase description",
-                "requires": [],         # optional
-                "function_binds": {},   # optional
-                "import_module_items": [],  # optional
                 "variables": [],   # optional
                 "request": {
                     "url": "/api/get-token",
@@ -108,6 +103,7 @@ class Runner(object):
     def do_hook_actions(self, actions):
         for action in actions:
             logger.log_debug("call hook: {}".format(action))
+            # TODO: check hook function if valid
             self.context.eval_content(action)
 
     def run_test(self, testcase_dict):
@@ -117,8 +113,6 @@ class Runner(object):
                 "name": "testcase description",
                 "skip": "skip this test unconditionally",
                 "times": 3,
-                "requires": [],         # optional, override
-                "function_binds": {},   # optional, override
                 "variables": [],        # optional, override
                 "request": {
                     "url": "http://127.0.0.1:5000/api/users/1000",
@@ -154,7 +148,15 @@ class Runner(object):
             method = parsed_request.pop('method')
             group_name = parsed_request.pop("group", None)
         except KeyError:
-            raise exception.ParamsError("URL or METHOD missed!")
+            raise exceptions.ParamsError("URL or METHOD missed!")
+
+        # TODO: move method validation to json schema
+        valid_methods = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+        if method.upper() not in valid_methods:
+            err_msg = u"Invalid HTTP method! => {}\n".format(method)
+            err_msg += "Available HTTP methods: {}".format("/".join(valid_methods))
+            logger.log_error(err_msg)
+            raise exceptions.ParamsError(err_msg)
 
         logger.log_info("{method} {url}".format(method=method, url=url))
         logger.log_debug("request kwargs(raw): {kwargs}".format(kwargs=parsed_request))
@@ -166,16 +168,17 @@ class Runner(object):
             name=group_name,
             **parsed_request
         )
+        resp_obj = response.ResponseObject(resp)
 
         # teardown hooks
         teardown_hooks = testcase_dict.get("teardown_hooks", [])
         if teardown_hooks:
-            self.context.bind_testcase_variable("response", resp)
+            logger.log_info("start to run teardown hooks")
+            self.context.bind_testcase_variable("response", resp_obj)
             self.do_hook_actions(teardown_hooks)
 
         # extract
         extractors = testcase_dict.get("extract", []) or testcase_dict.get("extractors", [])
-        resp_obj = response.ResponseObject(resp)
         extracted_variables_mapping = resp_obj.extract_response(extractors)
         self.context.bind_extracted_variables(extracted_variables_mapping)
 
@@ -183,20 +186,20 @@ class Runner(object):
         validators = testcase_dict.get("validate", []) or testcase_dict.get("validators", [])
         try:
             self.context.validate(validators, resp_obj)
-        except (exception.ParamsError, exception.ResponseError, \
-            exception.ValidationError, exception.ParseResponseError):
+        except (exceptions.ParamsError, \
+                exceptions.ValidationFailure, exceptions.ExtractFailure):
             # log request
             err_req_msg = "request: \n"
             err_req_msg += "headers: {}\n".format(parsed_request.pop("headers", {}))
             for k, v in parsed_request.items():
-                err_req_msg += "{}: {}\n".format(k, v)
+                err_req_msg += "{}: {}\n".format(k, repr(v))
             logger.log_error(err_req_msg)
 
             # log response
             err_resp_msg = "response: \n"
-            err_resp_msg += "status_code: {}\n".format(resp.status_code)
-            err_resp_msg += "headers: {}\n".format(resp.headers)
-            err_resp_msg += "body: {}\n".format(resp.text)
+            err_resp_msg += "status_code: {}\n".format(resp_obj.status_code)
+            err_resp_msg += "headers: {}\n".format(resp_obj.headers)
+            err_resp_msg += "body: {}\n".format(repr(resp_obj.text))
             logger.log_error(err_resp_msg)
 
             raise

@@ -1,7 +1,6 @@
 import os
 
-from httprunner import task
-from httprunner.testcase import TestcaseLoader
+from httprunner import loader, task
 from tests.base import ApiServerUnittest
 
 
@@ -17,7 +16,7 @@ class TestTask(ApiServerUnittest):
 
     def test_create_suite(self):
         testcase_file_path = os.path.join(os.getcwd(), 'tests/data/demo_testset_variables.yml')
-        testset = TestcaseLoader.load_test_file(testcase_file_path)
+        testset = loader._load_test_file(testcase_file_path)
         suite = task.TestSuite(testset)
         self.assertEqual(suite.countTestCases(), 3)
         for testcase in suite:
@@ -38,7 +37,7 @@ class TestTask(ApiServerUnittest):
                     'output': ['token']
                 },
                 'api': {},
-                'testcases': [
+                'teststeps': [
                     {
                         'name': '/api/get-token',
                         'request': {
@@ -73,8 +72,9 @@ class TestTask(ApiServerUnittest):
                 ]
             }
         ]
-        task_suite = task.TaskSuite(testsets)
+        test_suite_list = task.init_test_suites(testsets)
+        self.assertEqual(len(test_suite_list), 1)
+        task_suite = test_suite_list[0]
         self.assertEqual(task_suite.countTestCases(), 2)
-        for suite in task_suite:
-            for testcase in suite:
-                self.assertIsInstance(testcase, task.TestCase)
+        for testcase in task_suite:
+            self.assertIsInstance(testcase, task.TestCase)

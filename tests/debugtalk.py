@@ -1,32 +1,13 @@
-import hashlib
-import hmac
 import json
 import os
 import random
 import string
 import time
 
-try:
-    import urllib
-except NameError:
-    import urllib.parse as urllib
+from tests.api_server import HTTPBIN_SERVER, SECRET_KEY, gen_md5, get_sign
 
-SECRET_KEY = "DebugTalk"
 BASE_URL = "http://127.0.0.1:5000"
 
-def get_sign(*args):
-    content = ''.join(args).encode('ascii')
-    sign_key = SECRET_KEY.encode('ascii')
-    sign = hmac.new(sign_key, content, hashlib.sha1).hexdigest()
-    return sign
-
-get_sign_lambda = lambda *args: hmac.new(
-    'DebugTalk'.encode('ascii'),
-    ''.join(args).encode('ascii'),
-    hashlib.sha1).hexdigest()
-
-def gen_md5(*args):
-    return hashlib.md5("".join(args).encode('utf-8')).hexdigest()
 
 def sum_status_code(status_code, expect_sum):
     """ sum status code digits
@@ -37,6 +18,9 @@ def sum_status_code(status_code, expect_sum):
         sum_value += int(digit)
 
     assert sum_value == expect_sum
+
+def is_status_code_200(status_code):
+    return status_code == 200
 
 os.environ["TEST_ENV"] = "PRODUCTION"
 
@@ -56,8 +40,6 @@ def get_account():
         {"username": "user1", "password": "111111"},
         {"username": "user2", "password": "222222"}
     ]
-
-SECRET_KEY = "DebugTalk"
 
 def gen_random_string(str_len):
     random_char_list = []
@@ -94,3 +76,16 @@ def setup_hook_httpntlmauth(request):
         auth_account = request.pop("httpntlmauth")
         request["auth"] = HttpNtlmAuth(
             auth_account["username"], auth_account["password"])
+
+def alter_response(response):
+    response.status_code = 500
+    response.headers["Content-Type"] = "html/text"
+    response.json["headers"]["Host"] = "127.0.0.1:8888"
+    response.new_attribute = "new_attribute_value"
+    response.new_attribute_dict = {
+        "key": 123
+    }
+
+def alter_response_error(response):
+    # NameError
+    not_defined_variable
